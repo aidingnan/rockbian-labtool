@@ -78,8 +78,17 @@ im.on('add', iface => {
         ? console.log('failed to retrieve bluetooth device info')
         : r.send('blueInfo', info))))
 
+  r.once('blueToken', () => 
+    r.recv('blueAddr', addr => 
+      ble.request({ op: 'auth', token }, (err, 
+
+  // check info
   r.recv('blueInfo', info => {
     console.log(info)
+  })
+
+  r.recv('blueToken', token => {
+    console.log(token)
   })
 
   r.recv('winasd', winasd => {

@@ -1,209 +1,93 @@
-const child = require('child_process')
-const readline = require('readline')
+const Bluetoothctl = require('./bluetooth/bluetoothctl')
 
-const debug = require('debug')('app')
+const localAuthServiceUUID = '60000000-0182-406c-9221-0a6680bd0943'
+const localAuthReadCharUUID = '60000002-0182-406c-9221-0a6680bd0943'
+const localAuthWriteCharUUID = '60000003-0182-406c-9221-0a6680bd0943'
 
-const request = require('superagent')
-
-const domain = process.argv.includes('test') ? 'test' : 'aws-cn'
-console.log(`start provisioning for ${domain} domain...`)
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-
-
-const Restriction = require('./lib/restriction')
-const im = require('./lib/iface-monitor')
-
-const tokenUrl = domain === 'aws-cn'
-  ? 'https://aws-cn.aidingnan.com/provisioning/token'
-  : 'http://ec2-52-81-82-240.cn-north-1.compute.amazonaws.com.cn:12345/test/provisioning/token'
-
-const provisionUrl = domain === 'aws-cn'
-  ? 'https://aws-cn.aidingnan.com/provisioning/provisioning/certificate/sign'
-  : 'http://ec2-52-81-82-240.cn-north-1.compute.amazonaws.com.cn:12345/test/provisioning/certificate/sign'
-
-
-/**
-cb: (err, cert | null) => {}
-*/
-const fetchCert = (domain, sn, ip, callback) => request
-  .get(`https://${domain}.aidingnan.com/s/v1/station/${sn}/cert`)
-  .then(res => {
-    // console.log(`${ip} station account at ${domain} domain found`)
-    // console.log(res.body.data)
-    callback(null, res.body.data)
-  })
-  .catch(err => err.status === 404 ? callback(null) : callback(err))
-
-/**
-  .end((req, res) => {
-    if (res.status === 404 || (res.status === 200 && res.body.data === null)) {
-      console.log(`${ip} station account at ${domain} domain not found`)
-      callback(null, null)
-    } else if (res.status !== 200) {
-      console.log(`${ip} failed with ${res.status} when fetching cert`)
-      callback(new Error())
-    } else {
-      console.log(`${ip} station account at ${domain} domain found`)
-      console.log(res.body.data)
-      cert = res.body.data
-    }
-  })
-*/
-
-const fetchToken = (code, callback) => request
-  .get(tokenUrl)
-  .query({ key: code })
-  .then(res=> {
-    console.log('fetch token', res.body.token)
-    callback(null, res.body.token)
-  })
-  .catch(e => callback(e))
-
-/**
-retry: number, optional
-cb:
-*/
-const gencsr = (ip, retry, callback) => {
-  if (typeof retry === 'function') {
-    callback = retry
-    retry = 2
+let mainOpts = {
+  name: 'main',
+  powerCycle: false,
+  role: 'scan',
+  log: {
+    cmd: true,
   }
-
-  const ssh = `ssh -o "StrictHostKeyChecking no" root@`
-
-  child.exec(`${ssh}${ip} node /root/winasd/src/bpp.js --domain ${domain}`, (err, stdout) => {
-    if (!err) {
-      const ls = stdout.toString().split('\n').filter(l => l.length)
-      const first = ls[0]
-      const last = ls[ls.length - 1]
-      if (first.includes('BEGIN CERTIFICATE REQUEST') && last.includes('END CERTIFICATE REQUEST')) {
-        return callback(null, stdout.toString())
-      } else {
-        err = new Error('invalid csr format')
-      }
-    }
-
-    console.log('error generating csr', err.message, retry && 'retry...')
-    retry ? gencsr(ip, --retry, callback) : callback(err)
-  })
 }
 
-const signcsr = (token, sn, csr, callback) => request
-  .post(`http://ec2-54-223-41-42.cn-north-1.compute.amazonaws.com.cn:12345/provisioning/certificate/sign`)
-  .set('Authorization', token)
-  .send({ sn, csr })
-  .then(res => callback(null, res.body))
-  .catch(e => callback(e))
-
-// global
-const gr = new Restriction() 
-
-gr.once('token', () => {
-  let input
-  const codeLoop = () => {
-    rl.question('input a code:', answer => {
-      if (/^[0-9]{6}$/.test(answer)) {
-        input = answer
-        const fetchLoop = () => {
-          fetchToken(input, (err, token) => {
-            if (err) {
-              console.log(err.message)
-              const retryLoop = () => {
-                rl.question('press return for retry or input another code:', answer => {
-                  if (answer === '') {
-                    fetchLoop()
-                  } else if (/^[0-9]{6}$/.test(answer)) {
-                    input = answer
-                    fetchLoop()
-                  } else {
-                    console.log('invalid code')
-                    retryLoop()
-                  }
-                })
-              }
-              retryLoop()
-            } else {
-              gr.send('token', token)
-            }
-          }) 
-        }
-        fetchLoop() 
-      } else {
-        console.log('invalid code')
-        setImmediate(codeLoop)
-      }
-    })
+let gattOpts = {
+  name: 'gatt',
+  role: 'gatt',
+  log: {
+    cmd: true
   }
+}
 
-  codeLoop()
-}) 
+const main = new Bluetoothctl(mainOpts)
 
-im.on('add', iface => {
-  console.log(`${iface.buddyIp} added`)
-
-  const ip = iface.buddyIp
-  const ssh = `ssh -o "StrictHostKeyChecking no" root@${ip}`
-  const r = new Restriction()
-
-  r.once('sn', () => child.exec(`${ssh} cat /run/cowroot/root/data/init/sn`, (err, stdout, stderr) => {
-    if (err) {
-      console.log(`${ip} ${err.message}`)
-      console.log(`${ip}`, stdout)
-      console.log(`${ip}`, stderr)
+main.on('scan', () => {
+  main.devices((err, devices) => {
+    if (err) return
+    let dev = devices.find(dev => dev.addr === 'CC:4B:73:3D:0C:31')
+    if (!dev) {
+      console.log('not found')
     } else {
-      const sn = stdout.toString().trim()
-      r.send('sn', stdout.toString().trim())
-      console.log(`${ip} serial number ${sn}`)
-      console.log(`${ip} retrieving cert for ${sn} from ${domain} domain`)
-    }
-  }))
+      main.deviceInfo(dev.addr, (err, info) => {
+        console.log(err || info)
+        if (err) return
+       
+        const gatt = new Bluetoothctl({
+          name: 'gatt',
+          role: 'gatt',
+          addr: dev.addr,
+          log: { 
+            cmd: true 
+          }
+        })
 
-  r.once('csr', () => gencsr(ip, (err, csr) => {
-    if (err) {
-      console.log(`${ip}`, 'gencsr failed', err.message)
-    } else {
-      r.send('csr', csr)
-    }
-  }))
+        gatt.on('connected', () => gatt.listAttributes((err, services) => {
+          let la = services.find(svc => svc.uuid === localAuthServiceUUID)
+          if (!la) throw new Error('local auth service not found')
 
-  r.once('cert', () => r.recv('sn', sn => fetchCert(domain, sn, ip, (err, cert) => {
-    if (err) {
-      console.log(err)
-    } else {
-      if (cert) {
-        r.send('cert', cert)
-      } else {
-        r.send('nocert')
-      }
-    }
-  })))
+          const source = new Bluetoothctl({
+            name: 'source',
+            addr: gatt.addr,
+            role: 'char',
+            serviceUUID: localAuthServiceUUID,
+            charUUID: localAuthReadCharUUID,
+            charType: 'source',
+            log: {
+              cmd: true,
+              msg: true
+            }
+          })
 
-  r.once('newcert', () => r.recv('sn', sn => r.recv('csr', csr => r.recv('cert', 'nocert', name => {
-    if (name === 'cert') return
-    console.log(`${ip} cert not found, trying to sign a new cert`)
-    gr.recv('token', token => {
-      signcsr(token, sn, csr, (err, body) => {
-        if (err) {
-          console.log(`${ip} provisioning failed`)
-        } else {
-          debug('new cert id', body.certId)
-          debug('new cert arn', body.certArn)
-          debug('new cert pem', body.certPem)
-          r.send('newcert', body.certPem)
-        }
+          source.on('open', () => {
+            const sink = new Bluetoothctl({
+              name: 'sink',
+              addr: gatt.addr,
+              role: 'char',
+              serviceUUID: localAuthServiceUUID,
+              charUUID: localAuthWriteCharUUID,
+              charType: 'sink',
+              log: {
+                cmd: true,
+              }
+            })
+            sink.on('open', () => {
+              sink.write({ action:'req', seq:1 }, err => {
+                if (err) {
+                  console.log(err)
+                } else {
+                  source.once('message', msg => {
+                    console.log(msg)
+                  })
+                }
+              })
+            })
+          })
+        }))
       })
-    })
-  }))))
-
-  r.recv('cert', 'newcert', (name, value) => r.recv('csr', () => {
-    if (name === 'cert') {
-      console.log(`${ip} has already been provisioned`)
-    } else {
-      console.log(`${ip} is successfully provisioned`)
     }
-  }))
+  })
 })
 
-im.on('remove', iface => {
-  console.log(`${iface.buddyIp} removed`)
-})
+
