@@ -5,7 +5,8 @@ const wdebug = require('debug')('winasd')
 const request = require('superagent')
 
 const im = require('./lib/iface-monitor')
-const ble = require('./lib/bluetooth') 
+// const ble = require('./lib/bluetooth') 
+const Bluetooth = require('./bluetooth')
 const Restriction = require('./lib/restriction')
 
 const getBlueAddr = (ip, callback) => {
@@ -53,16 +54,17 @@ g.once('encryptedMe', () =>
 g.recv('encryptedMe', data => {
   console.log('encrypted me:', data)
 })
+
+const sshArgs = ['-o', 'StrictHostKeyChecking no', '-tt']
+
+const ble = new Bluetooth()
   
 im.on('add', iface => {
   const ip = iface.buddyIp
   const r = new Restriction()
 
   r.once('winasd', () => {
-
-    console.log('spawning winasd remotely ===========================================================================')
-
-    const winasd = child.spawn('ssh', ['-o', 'StrictHostKeyChecking no', '-tt', `root@${ip}`, 'node /root/winasd/src/app.js'])
+    const winasd = child.spawn('ssh', [...sshArgs, `root@${ip}`, 'node /root/winasd/src/app.js'])
     const rl = readline.createInterface({ input: winasd.stdout })
     // process.nextTick(() => r.send(rl))
     rl.on('line', l => wdebug(l))
@@ -73,14 +75,23 @@ im.on('add', iface => {
     : r.send('blueAddr', addr)))
 
   r.once('blueInfo', () => 
-    r.recv('blueAddr', addr => 
-      ble.request({ op: 'info', addr }, (err, info) => err
-        ? console.log('failed to retrieve bluetooth device info')
-        : r.send('blueInfo', info))))
+    r.recv('blueAddr', baddr => 
+      ble.deviceInfo(baddr, (err, info) => {
+        if (err) {
+        } else {
+          console.log(info)
+        }
+      })))
 
+//      ble.request({ op: 'info', addr }, (err, info) => err
+//         ? console.log('failed to retrieve bluetooth device info')
+//        : r.send('blueInfo', info))))
+
+/**
   r.once('blueToken', () => 
     r.recv('blueAddr', addr => 
       ble.request({ op: 'auth', token }, (err, 
+*/
 
   // check info
   r.recv('blueInfo', info => {

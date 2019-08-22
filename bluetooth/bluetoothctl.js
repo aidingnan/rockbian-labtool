@@ -1,16 +1,11 @@
 const EventEmitter = require('events')
 const child = require('child_process')
 
-const debug = require('debug')('bluetoothctl')
+const Debug = require('debug')
 const stripAnsi = require('strip-ansi')
 const camelCase = require('camelcase')
 
-let count = 0
-
-const stub = lines => !console.log(lines)
-
-const parseDevices = lines => {
-}
+const stub = lines => console.log('(stub) ' + lines) || true
 
 const parseDeviceInfo = lines => { 
   let regex = new RegExp(`^Device (.*) \\(\(.*\)\\)$`)
@@ -56,35 +51,6 @@ const parseDeviceInfo = lines => {
 four line -> service, or characteristic, or descriptor
 */
 const parseAttributes = lines => {
-/**
-  let obj = {}
-  while (buf.length) {
-    let type = buf.shift() 
-    let path = buf.shift().trim()
-    let uuid = buf.shift().trim()
-    buf.shift() 
-
-    if (type === 'Characteristic') {
-      switch (uuid) {
-        case '60000002-0182-406c-9221-0a6680bd0943':
-          obj.authRead = path
-          break
-        case '60000003-0182-406c-9221-0a6680bd0943': 
-          obj.authWrite = path
-          break
-        case '70000002-0182-406c-9221-0a6680bd0943':
-          obj.netRead = path
-          break
-        case '70000003-0182-406c-9221-0a6680bd0943': 
-          obj.netWrite = path
-          break
-       default: 
-          break 
-      }
-    }
-  }
-*/
-
   const services = []
 
   while (lines.length) {
@@ -133,6 +99,7 @@ class Bluetoothctl extends EventEmitter {
     super()
     let { 
       name,             // optional
+      suffix,           // optional
       role,             // scan, gatt, or char
       powerCycle,       // true or false for scan 
       addr,             // bluetooth addr
@@ -142,8 +109,10 @@ class Bluetoothctl extends EventEmitter {
       log,              // string or object
     } = opts 
 
-    this.count = count++
-    this.name = name || 'blue' + this.count
+    this.name = name || addr || 'bluetoothctl'
+    this.suffix = suffix || ''
+
+    this.debug = Debug(`${this.name}${this.suffix}`)
   
     if (!['scan', 'gatt', 'char'].includes(role)) throw new Error('no role')
     this.role = role
@@ -163,12 +132,12 @@ class Bluetoothctl extends EventEmitter {
     }
 
     if (log === 'all') {
-      this.log = {
+      this.logOpt = {
         cmd: true,
         raw: true
       }
     } else {
-      this.log = log || {}
+      this.logOpt = log || {}
     }
 
     this.menu = 'main'
@@ -196,40 +165,16 @@ class Bluetoothctl extends EventEmitter {
       default:
         break
     }
+  }
 
-/**
-    if (opts && opts.powerCycle) {
-      this.powerOff(() => this.powerOn(() => next()))
-    } else {
-      process.nextTick(() => next())
-    }
-
-    const next = () => {
-      if (opts && opts.role === 'scan') {
-        this.scanOn(() => {
-          this.emit('scan') 
-        }) 
-      } else if (this.role === 'gatt') {
-        this.connect(this.addr, err => err ? this.emit('error', err) : this.emit('connected'))
-      } else if (this.role === 'attr') {
-          
-      }
-    }
-*/
+  log (type, data) {
+    this.debug(`${type}:`, data)
   }
 
   handle (data) {
     const append = stripAnsi(data.toString())
-
-    if (this.log && this.log.raw) {
-//      console.log('append', JSON.stringify(append))
-    }
-
     this.str += append
-
-    if (this.log && this.log.raw) {
-      console.log('raw', JSON.stringify(this.str))
-    }
+    if (this.logOpt.raw) this.log('raw', JSON.stringify(this.str))
 
     let m
     while (m = this.str.match(new RegExp('(\n|\n\r|\r\r)\\[(.*)\\]# '), 's')) {
@@ -253,7 +198,7 @@ class Bluetoothctl extends EventEmitter {
         if (s1.startsWith('[') || s1.startsWith('  ')) {
           if (s1.startsWith('[')) {
             if (this.unsolicited) {
-              if (this.log && this.log.unsol) {
+              if (this.logOpt.unsol) {
                 console.log(this.unsolicited)
               }
               this.handleUnsolicited()
@@ -280,8 +225,8 @@ class Bluetoothctl extends EventEmitter {
             const { cmd, async } = this.cmds[0]
             if (async && !async(s1.split('\n'))) {
               this.last = this.cmds.shift()
-              if (this.log && this.log.cmd) {
-                console.log(`[${this.name}] cmd: ${cmd} finished`)
+              if (this.logOpt.cmd) {
+                this.log('cmd', `${cmd} finished`)
               }
               if (this.cmds.length) this.send()
             }
@@ -317,8 +262,8 @@ class Bluetoothctl extends EventEmitter {
           } else {
             if (sync && !sync(s.split('\n').slice(1))) {
               this.last = this.cmds.shift()
-              if (this.log && this.log.cmd) {
-                console.log(`[${this.name}] cmd: ${cmd} finished`)
+              if (this.logOpt.cmd) {
+                this.log('cmd', `${cmd} finished`)
               }
               if (this.cmds.length) this.send()
             }
@@ -334,8 +279,8 @@ class Bluetoothctl extends EventEmitter {
     if (this.role === 'char' && 
       this.charType === 'source' &&
       this.unsolicited.line === `[CHG] Attribute ${this.charPath} Value:`) {
-      if (this.log.msg) {
-        console.log(`[${this.name}] msg: ${this.unsolicited.buf.toString()}`)
+      if (this.logOpt.msg) {
+        this.log('msg', `${this.unsolicited.buf.toString()}`)
       }
       const msg = JSON.parse(this.unsolicited.buf)
       this.emit('message', msg)
@@ -344,8 +289,8 @@ class Bluetoothctl extends EventEmitter {
 
   send () {
     this.ctl.stdin.write(`${this.cmds[0].cmd}\n`)
-    if (this.log.cmd) {
-      console.log(`[${this.name}] cmd: ${this.cmds[0].cmd}`)
+    if (this.logOpt.cmd) {
+      this.log('cmd', `${this.cmds[0].cmd}`)
     }
   }
 
@@ -357,6 +302,7 @@ class Bluetoothctl extends EventEmitter {
   startScanRole () {
     const next = () => {
       this.scanOn(() => {
+        this.scanning = true
         this.emit('scan')
       })
     }
@@ -369,11 +315,18 @@ class Bluetoothctl extends EventEmitter {
   }
 
   startGattRole () {
-    this.connect(err => {
+    this.deviceInfo(this.addr, (err, info) => {
       if (err) {
         this.emit('error', err)
       } else {
-        this.emit('connected')
+        this.connect(err => {
+          if (err) {
+            this.emit('error', err)
+          } else {
+            this.connected = true
+            this.emit('connected')
+          }
+        })
       }
     })
   }
@@ -405,11 +358,15 @@ class Bluetoothctl extends EventEmitter {
                         if (err) {
                           this.emit('error', err)
                         } else {
-                          this.emit('open')
+                          this.log('***', 'ready')
+                          this.ready = true
+                          this.emit('ready')
                         }
                       })
                     } else {
-                      this.emit('open')
+                      this.log('***', 'ready')
+                      this.ready = true
+                      this.emit('ready')
                     }
                   }
                 })
@@ -457,22 +414,29 @@ class Bluetoothctl extends EventEmitter {
 
   // api
   devices (callback) {
-    // [xxxx]
-    this.setMenu('main', () => 
-      this.push('devices', lines => 
-        callback(null, lines.map(l => ({
-          addr: l.slice(7, 24),
-          name: l.slice(25)
-        })))))
+    const next = () => 
+      this.setMenu('main', () => 
+        this.push('devices', lines => 
+          callback(null, lines.map(l => ({ addr: l.slice(7, 24), name: l.slice(25) })))))
+
+    this.scanning ? next() : this.once('scan', () => next())
   }
 
-  // api
+  // api for all roles
   deviceInfo (addr, callback) {
-    this.setMenu('main', () => 
-      this.push(`info ${addr}`, lines => 
-        callback(null, parseDeviceInfo(lines))))
+    const next = () => 
+      this.setMenu('main', () => 
+        this.push(`info ${addr}`, lines => 
+          callback(null, parseDeviceInfo(lines))))
+
+    this.role === 'scan'
+      ? this.scanning 
+        ? next() 
+        : this.once('scan', () => next())
+      : next()
   }
 
+  // internal
   connect (callback) {
     // [ 'Attempting to connect to CC:4B:73:3D:0C:31' ]
     // [ 'Connection successful' ]
@@ -491,6 +455,7 @@ class Bluetoothctl extends EventEmitter {
     })
   }
 
+  // 
   selectAttribute (callback) {
     this.setMenu('gatt', () => {
       // [] this command change prompt only
@@ -505,6 +470,7 @@ class Bluetoothctl extends EventEmitter {
     })
   }
 
+  // possibly failed with [ 'Failed to start notify: org.freedesktop.DBus.Error.NoReply' ]
   notifyOn (callback) {
     // []
     // [ 'Notify started' ]
@@ -519,7 +485,7 @@ class Bluetoothctl extends EventEmitter {
 
   // api
   write (obj, callback) {
-    let json = JSON.stringify(obj) 
+    let json = JSON.stringify(obj)
     let hexes = Array.from(Buffer.from(json)).map(n => `0x${n.toString(16)}`).join(' ')
     // [ 'Attempting to write /org/bluez/hci0/dev_CC_4B_73_3D_0C_31/service00aa/char00ae' ]
     this.push(`write "${hexes}"`, lines => {
@@ -533,7 +499,7 @@ class Bluetoothctl extends EventEmitter {
   }
 
   read (callback) {
-    this.push('read', stub, stub)
+    this.push('read', lines => {})
   }
 }
 
