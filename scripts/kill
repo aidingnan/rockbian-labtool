@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -e
+
+LIST=$(ps aux | grep "[n]ode" | awk '{ print $2 }')
+
+if [ -n "$LIST" ]; then 
+  kill -9 $LIST
+  R=$?
+  echo "process ${LIST} killed"
+else
+  echo "nothing to kill, :)"
+fi
+

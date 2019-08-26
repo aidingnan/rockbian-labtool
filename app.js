@@ -5,9 +5,11 @@ const wdebug = require('debug')('winasd')
 const request = require('superagent')
 
 const im = require('./lib/iface-monitor')
-// const ble = require('./lib/bluetooth') 
 const Bluetooth = require('./bluetooth')
 const Restriction = require('./lib/restriction')
+
+const pi = require('./lib/pi')
+const reducer = pi.reducer
 
 const getBlueAddr = (ip, callback) => {
   const c = child.spawn('ssh', ['-o', 'StrictHostKeyChecking no', `root@${ip}`, 'hcitool dev'])
@@ -63,49 +65,103 @@ im.on('add', iface => {
   const ip = iface.buddyIp
   const r = new Restriction()
 
-  r.once('winasd', () => {
-    const winasd = child.spawn('ssh', [...sshArgs, `root@${ip}`, 'node /root/winasd/src/app.js'])
-    const rl = readline.createInterface({ input: winasd.stdout })
-    // process.nextTick(() => r.send(rl))
-    rl.on('line', l => wdebug(l))
-  }) 
+  // winasd output
+  const winasd = reducer(callback => {
+    child.exec(`scp -o "StrictHostKeyChecking no" scripts/kill root@${ip}:/run`, (err, stdout, stderr) => {
+      if (err) console.log('warning: failed to kill previous node processes')
+      child.exec(`ssh -o "StrictHostKeyChecking no" root@${ip} bash /run/kill`, (err, stdout, stderr) => {
+        const winasd = child.spawn('ssh', [...sshArgs, `root@${ip}`, 'node /root/winasd/src/app.js'])
+        const rl = readline.createInterface({ input: winasd.stdout })
+        // delay for a while
+        setTimeout(() => callback(null, rl), 3000)
+      })
+    })
+  })
 
-  r.once('blueAddr', () => getBlueAddr(ip, (err, addr) => err 
-    ? console.log(`${ip} blueAddr err: ${err.message}`) 
-    : r.send('blueAddr', addr)))
+  // bluetooth addr (from ssh)
+  const baddr = reducer(callback => getBlueAddr(ip, callback))
 
-  r.once('blueInfo', () => 
-    r.recv('blueAddr', baddr => 
-      ble.deviceInfo(baddr, (err, info) => {
-        if (err) {
-        } else {
-          console.log(info)
+  // bluetooth device info
+  const binfo = reducer(callback => pi.every(baddr, () => ble.deviceInfo(baddr.data, callback)))
+
+  // auth token
+  const btoken = reducer(cb => {
+    pi.every(baddr, winasd, () => {
+      const color = reducer(callback => {
+        const colorPicker = line => {
+          if (line.includes('alwaysOn') || line.includes('breath')) {
+            winasd.removeListener('line', colorPicker)
+            let color = [ line.match(/#[0-9a-f]{6}/g)[0], line.match(/(alwaysOn|breath)/g)[0] ]
+            callback(null, color)
+          }
         }
-      })))
+        winasd.on('line', colorPicker)
+        // TODO timeout
+      })
 
-//      ble.request({ op: 'info', addr }, (err, info) => err
-//         ? console.log('failed to retrieve bluetooth device info')
-//        : r.send('blueInfo', info))))
+      // forcefully start early
+      color.on(() => {})
+
+      ble.request(addr, 'auth', { action: 'req', seq: 1 }, (err, res) => {
+        if (err) {
+          callback(err)
+        } else {
+          // { action: 'auth', seq: 3, body: { color: colors[data[0] - 48] } } 
+          pi.every(color, () => 
+            ble.request(addr, 'auth', { action: 'auth', seq: 2, body: { color }}, (err, res) => {
+            if (err) {
+              callback(err)
+            } else {
+              callback(null, res.data.token)
+            }
+          }))
+        }
+      })
+    })
+  })
+
+  // 
+  pi.every(baddr, binfo, () => {
+    console.log('test every', baddr.data, binfo.data)
+  })
+
+  pi.every(winasd, () => {
+    winasd.data.on('line', line => console.log(line))
+  })
+
 
 /**
   r.once('blueToken', () => 
-    r.recv('blueAddr', addr => 
-      ble.request({ op: 'auth', token }, (err, 
+    r.recv('blueAddr', addr => r.recv('winasd', winasd => {
+      const r2 = new Restriction()
+      const colorPicker = line => {
+        // console.log('color picker', line)
+        if (line.includes('alwaysOn') || line.includes('breath')) {
+          winasd.removeListener('line', colorPicker)
+          let color = [ line.match(/#[0-9a-f]{6}/g)[0], line.match(/(alwaysOn|breath)/g)[0] ]
+          r2.send('color', color)
+        }
+      }
+      winasd.on('line', colorPicker)
+
+      ble.request(addr, 'auth', { action: 'req', seq: 1 }, (err, res) => {
+        if (err) {
+          console.log('err retrieving blue token') // TODO
+        } else {
+          // { action: 'auth', seq: 3, body: { color: colors[data[0] - 48] } } 
+          r2.recv('color', color => 
+            ble.request(addr, 'auth', { action: 'auth', seq: 2, body: { color }}, (err, res) => {
+            if (err) {
+              console.log('failed to retrieve token', err)
+            } else {
+              r.send('blueToken', res.data.token)
+            }
+          }))
+        }
+      })
+    })))
+
+  r.recv('winasd', winasd => winasd.on('line', line => wdebug(line)))
 */
-
-  // check info
-  r.recv('blueInfo', info => {
-    console.log(info)
-  })
-
-  r.recv('blueToken', token => {
-    console.log(token)
-  })
-
-  r.recv('winasd', winasd => {
-    winasd.on('line', line => {
-      wdebug(line)
-    })
-  })
 })
 

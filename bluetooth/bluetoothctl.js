@@ -282,8 +282,20 @@ class Bluetoothctl extends EventEmitter {
       if (this.logOpt.msg) {
         this.log('msg', `${this.unsolicited.buf.toString()}`)
       }
-      const msg = JSON.parse(this.unsolicited.buf)
-      this.emit('message', msg)
+      
+      let msg
+      let str = this.unsolicited.buf.toString().trim()
+      if (str.length % 2 === 0 && 
+        str.slice(0, str.length / 2) === str.slice(str.length / 2)) {
+        str = str.slice(str.length / 2)
+      }
+
+      try { 
+        msg = JSON.parse(str)
+        this.emit('message', msg)
+      } catch (e) {
+        this.emit(e)  
+      }
     }
   }
 
@@ -474,13 +486,20 @@ class Bluetoothctl extends EventEmitter {
   notifyOn (callback) {
     // []
     // [ 'Notify started' ]
-    this.push('notify on', () => true, lines => {
-      if (lines.length !== 1 || lines[0] !== 'Notify started') {
-        callback(new Error(lines.length ? lines[0] : 'failed'))
-      } else {
-        callback(null)
-      }
-    })
+    let down = 3
+    const retry = () => 
+      this.push('notify on', () => true, lines => {
+        if (lines[0].includes('Notify started')) {
+          callback(null)
+        } else if (lines[0].includes('Failed to start notify')) {
+          console.log(`notify on failed: ${lines[0]}`)
+          down-- ? retry() : callback(new Error(lines[0]))
+        } else {
+          callback(new Error(lines.length ? lines[0] : 'failed'))
+        }
+      })
+
+    retry()
   }
 
   // api
@@ -489,18 +508,32 @@ class Bluetoothctl extends EventEmitter {
     let hexes = Array.from(Buffer.from(json)).map(n => `0x${n.toString(16)}`).join(' ')
     // [ 'Attempting to write /org/bluez/hci0/dev_CC_4B_73_3D_0C_31/service00aa/char00ae' ]
     this.push(`write "${hexes}"`, lines => {
+      return true
       if (lines.length && lines[0] === `Attempting to write ${this.charPath}`) {
         callback(null)
       } else {
         let err = new Error(lines.length ? lines[0] : 'failed')
         callback(err)
       }
+    }, lines => {
+      // [ 'Failed to write: org.bluez.Error.Failed' ]
+      if (lines.length && lines[0].includes('Failed to write')) {
+        callback(new Error(lines[0]))
+      } else {
+      
+      }
     }) 
+  }
+
+  shift () {
+    this.cmds.shift()
+    if (this.cmds.length) this.send()
   }
 
   read (callback) {
     this.push('read', lines => {})
   }
+
 }
 
 module.exports = Bluetoothctl
