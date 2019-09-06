@@ -29,7 +29,7 @@ const fetchCert = (domain, sn, ip, callback) => request
   .get(`https://${domain}.aidingnan.com/s/v1/station/${sn}/cert`)
   .then(res => {
     // console.log(`${ip} station account at ${domain} domain found`)
-    // console.log(res.body.data)
+    console.log(res.body)
     callback(null, res.body.data)
   })
   .catch(err => err.status === 404 ? callback(null) : callback(err))
