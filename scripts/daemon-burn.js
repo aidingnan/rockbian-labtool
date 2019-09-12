@@ -17,8 +17,9 @@ while (true) {
     continue
   }
   const t1 = new Date()
-  console.log('\n', '======检测到设备，5秒后开始烧录=====')
-  child.execSync('sleep 5')
+  console.log('\n', '======检测到设备，按任意键开始烧录=====')
+  child.execSync('read CMD', {stdio: [process.stdin, null, null]})
+  child.execSync('sleep 1')
   try {
     child.execSync('./burn.sh', { stdio: 'inherit' })
   } catch (error) {
