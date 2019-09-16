@@ -17,7 +17,7 @@ while (true) {
     continue
   }
   const t1 = new Date()
-  console.log('\n', '======检测到设备，按任意键开始烧录=====')
+  console.log('\n', '======检测到设备，按回车键开始烧录=====')
   child.execSync('read CMD', {stdio: [process.stdin, null, null]})
   child.execSync('sleep 1')
   try {
