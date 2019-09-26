@@ -202,11 +202,10 @@ im.on('add', iface => {
     // auto unroot and sync and reboot
     console.log(`exec rockbian unroot ...`)
     child.execSync(`${ssh} rockbian unroot`)
-    child.execSync(`${ssh} sync`)
-    console.log(`rockbian unroot and sync success`)
     child.execSync(`sleep 1`)
-    child.execSync(`${ssh} reboot`)
-    console.log(`reboot device success`)
+    child.execSync(`${ssh} sync`)
+    child.execSync(`sleep 1`)
+    console.log('\x1B[43m%s\x1b[0m:', `${new Date()} rockbian unroot and sync success`)
   }))
 })
 
