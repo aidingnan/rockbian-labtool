@@ -2,6 +2,7 @@
 /// usage: sudo node ./detect.js
 const child = require('child_process')
 const path = require('path')
+const fs = require('fs')
 
 let lastSN = ''
 
@@ -11,7 +12,8 @@ const fullPath = path.resolve(`./csv/${fileName}.csv`)
 
 console.log('')
 console.log('CSV文件路径', fullPath, '\n')
-child.execSync(`echo 设备名,序列号 >> ${fullPath}`)
+fs.appendFileSync(fullPath, '设备名,序列号\n')
+// child.execSync(`echo 设备名,序列号 >> ${fullPath}`)
 console.log('检测设备中...')
 while (true) {
   let usn
@@ -35,7 +37,7 @@ while (true) {
   if (lastSN !== usn) {
     lastSN = usn
     console.log('\n序列号:\t', usn, '\n时间:\t', time, '\n')
-    child.execSync(`echo 设备名：pan-${usn.substr(0, 4)},序列号：${usn} >> ${fullPath}`)
+    fs.appendFileSync(fullPath, `设备名：pan-${usn.substr(0, 4)},序列号：${usn}\n`)
   } else {
     process.stdout.write('.')
   }
