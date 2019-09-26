@@ -6,13 +6,14 @@ const fs = require('fs')
 
 let lastSN = ''
 
-const fileName = new Date().toJSON()
+const fileName = new Date().toJSON().replace(/:/g, '-')
 
 const fullPath = path.resolve(`./csv/${fileName}.csv`)
 
 console.log('')
 console.log('CSV文件路径', fullPath, '\n')
-fs.appendFileSync(fullPath, '设备名,序列号\n')
+fs.writeFileSync(fullPath, '\ufeff')
+fs.appendFileSync(fullPath, '设备名,序列号\r\n')
 // child.execSync(`echo 设备名,序列号 >> ${fullPath}`)
 console.log('检测设备中...')
 while (true) {
@@ -37,7 +38,7 @@ while (true) {
   if (lastSN !== usn) {
     lastSN = usn
     console.log('\n序列号:\t', usn, '\n时间:\t', time, '\n')
-    fs.appendFileSync(fullPath, `设备名：pan-${usn.substr(0, 4)},序列号：${usn}\n`)
+    fs.appendFileSync(fullPath, `设备名：pan-${usn.substr(0, 4)},序列号：${usn}\r\n`)
   } else {
     process.stdout.write('.')
   }
