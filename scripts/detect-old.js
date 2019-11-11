@@ -37,15 +37,7 @@ while (true) {
 
   if (lastSN !== usn) {
     lastSN = usn
-    let size = ''
-    try {
-      const ip = `169.254.${usn.substr(0, 2)}.${usn.substr(2, 4)}`
-      const res = child.execSync(`curl -s http://${ip}:3000/boot | grep size | head -n 1 | awk '{print $2}'`)
-      size = `${parseInt((parseInt(res) * 512 / 1000 / 1000 / 1000))} G`
-    } catch (e) {
-    }
-
-    console.log('\n序列号:\t', usn, '\n大小:\t', size, '\n时间:\t', time, '\n')
+    console.log('\n序列号:\t', usn, '\n时间:\t', time, '\n')
     fs.appendFileSync(fullPath, `设备名：pan-${usn.substr(0, 4)},序列号：${usn}\r\n`)
   } else {
     process.stdout.write('.')
