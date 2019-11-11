@@ -39,8 +39,9 @@ while (true) {
     lastSN = usn
     let size = ''
     try {
-      const ip = `169.254.${usn.substr(0, 2)}.${usn.substr(2, 4)}`
-      const res = child.execSync(`curl -s http://${ip}:3000/boot | grep size | head -n 1 | awk '{print $2}'`)
+      const ip = `169.254.${usn.substr(0, 2)}.${usn.substr(2, 2)}`
+      console.log(ip)
+      const res = child.execSync(`curl -s http://10.10.9.168:3000/boot | grep size | head -n 1 | awk '{print $2}'`)
       size = `${parseInt((parseInt(res.toString()) * 512 / 1000 / 1000 / 1000))} G`
     } catch (e) {
     }
